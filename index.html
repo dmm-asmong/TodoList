@@ -271,7 +271,7 @@
       <div class="header">
         <div>
           <h1 class="title">Teachable Machine · 자세 체크</h1>
-          <div class="muted">카메라를 켜면 실시간으로 분류 결과가 표시되고, 50% 기준으로 화면 테마가 바뀝니다.</div>
+          <div class="muted">카메라를 켜면 실시간으로 분류 결과가 표시되고, 50% 기준으로 화면 테마가 바뀌며 80% 이상이면 소리 경고가 울립니다.</div>
         </div>
         <div class="controls">
           <button id="startBtn" class="btn primary" type="button" onclick="init()">
@@ -306,7 +306,8 @@
 
         <div class="hint">
           • “바른자세” 확률이 50% 이상이면 안정적인 밝은 테마<br/>
-          • “나쁜자세” 확률이 50% 이상이면 경고 테마
+          • “나쁜자세” 확률이 50% 이상이면 경고 테마<br/>
+          • “나쁜자세” 확률이 80% 이상이면 소리 경고(2초 쿨다운)
         </div>
       </div>
     </aside>
@@ -322,6 +323,48 @@
     let model, webcam, maxPredictions;
     let barRows = [];  // store DOM refs for each class row
     let loopRunning = false;
+
+    // ✅ 경고 중복 방지 + 오디오
+    let warningShown = false;      // 경고(팝업 등) 중복 방지용
+    let audioCtx = null;           // 오디오 컨텍스트(사용자 클릭 후 생성)
+    let soundCooldownUntil = 0;    // 소리 반복 방지(쿨다운)
+
+    // 짧은 경고 비프음 (Web Audio API)
+    function beepWarning() {
+      const now = Date.now();
+      if (now < soundCooldownUntil) return; // 너무 자주 울리지 않게
+
+      // 오디오 컨텍스트 생성/재개(사용자 제스처 이후 가능)
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+
+      const o1 = audioCtx.createOscillator();
+      const g  = audioCtx.createGain();
+
+      // "삐-삐" 두 번 울리는 느낌
+      const t = audioCtx.currentTime;
+
+      o1.type = "sine";
+      o1.frequency.setValueAtTime(880, t); // 880Hz
+      g.gain.setValueAtTime(0.0001, t);
+
+      // 첫 번째 비프
+      g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+
+      // 두 번째 비프 (조금 뒤)
+      g.gain.exponentialRampToValueAtTime(0.25, t + 0.28);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.44);
+
+      o1.connect(g);
+      g.connect(audioCtx.destination);
+
+      o1.start(t);
+      o1.stop(t + 0.5);
+
+      // 2초 쿨다운(원하면 조절)
+      soundCooldownUntil = now + 2000;
+    }
 
     // theme helpers
     function setTheme(mode){ // 'default' | 'ok' | 'warn'
@@ -362,6 +405,10 @@
       try{
         setStartLoading(true);
         setStatus("모델 로딩 중…", "default");
+
+        // (선택) 사용자 클릭 직후 오디오 컨텍스트 준비 → 정책 대응
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === "suspended") await audioCtx.resume();
 
         const modelURL = URL + "model.json";
         const metadataURL = URL + "metadata.json";
@@ -436,6 +483,11 @@
         }
         setTheme("default");
         setStatus("정지됨", "default");
+
+        // 상태 초기화
+        warningShown = false;
+        soundCooldownUntil = 0;
+
         document.getElementById("startBtn").disabled = false;
         document.getElementById("stopBtn").disabled = true;
         document.getElementById("startText").textContent = "Start";
@@ -472,12 +524,24 @@
       }
 
       // theme switching rule (50% 기준)
-      // ⚠️ Teachable Machine에서 클래스명이 정확히 "바른자세", "나쁜자세"가 아니라면
-      // 포함 문자열로 찾도록 구성해둠(바른 / 나쁜)
       const good = findProb(prediction, ["바른자세","바른"]);
       const bad  = findProb(prediction, ["나쁜자세","나쁜","불량","경고"]);
 
-      // 우선순위: bad 50% 이상이면 warn, else good 50% 이상이면 ok, else default
+      // ✅ 나쁜자세 80% 이상이면 소리 경고(쿨다운 적용)
+      if (bad !== null && bad >= 0.8) {
+        beepWarning(); // 🔊
+
+        // (선택) 팝업이 필요하면 아래 주석 해제
+        // if (!warningShown) {
+        //   alert("⚠️ 자세가 많이 흐트러졌어요!\n허리를 펴고 바른 자세로 앉아주세요.");
+        //   warningShown = true;
+        // }
+      } else {
+        // 80% 미만으로 내려가면 다시 경고 가능 상태(팝업을 쓸 경우)
+        warningShown = false;
+      }
+
+      // ✅ 배경 테마 우선순위: bad 50% 이상이면 warn, else good 50% 이상이면 ok, else default
       if (bad !== null && bad > 0.5) {
         setTheme("warn");
         setStatus(`나쁜자세 감지 · ${(bad*100).toFixed(0)}%`, "warn");
