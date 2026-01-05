@@ -1,59 +1,494 @@
-<div>Teachable Machine Image Model</div>
-<button type="button" onclick="init()">Start</button>
-<div id="webcam-container"></div>
-<div id="label-container"></div>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
-<script type="text/javascript">
-    // More API functions here:
-    // https://github.com/googlecreativelab/teachablemachine-community/tree/master/libraries/image
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Posture Check</title>
 
-    // the link to your model provided by Teachable Machine export panel
+  <!-- Fonts (optional) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root{
+      --bg: #0b0f1a;
+      --card: rgba(255,255,255,.06);
+      --card2: rgba(255,255,255,.10);
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.65);
+      --border: rgba(255,255,255,.12);
+
+      --ok-bg: #ecfdf3;         /* 안정적이고 환한 톤 */
+      --ok-text: #0a2a16;
+      --warn-bg: #fff1f2;       /* 경고 톤 */
+      --warn-text: #3b0a12;
+
+      --accent: #7c3aed;
+      --accent2: #22c55e;
+      --accent3: #ef4444;
+      --shadow: 0 18px 50px rgba(0,0,0,.35);
+      --radius: 18px;
+    }
+
+    /* Theme switching */
+    html.theme-default { background: radial-gradient(1200px 800px at 20% 10%, rgba(124,58,237,.35), transparent 55%),
+                                     radial-gradient(900px 700px at 80% 0%, rgba(34,197,94,.18), transparent 60%),
+                                     var(--bg); }
+    html.theme-ok      { background: radial-gradient(900px 700px at 20% 10%, rgba(34,197,94,.18), transparent 60%),
+                                     var(--ok-bg); }
+    html.theme-warn    { background: radial-gradient(900px 700px at 20% 10%, rgba(239,68,68,.18), transparent 60%),
+                                     var(--warn-bg); }
+
+    body{
+      margin:0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", sans-serif;
+      color: var(--text);
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding: 24px;
+      transition: background-color .25s ease;
+    }
+
+    /* Text color adapts for ok/warn */
+    html.theme-ok body, html.theme-warn body { color: #0b1220; }
+    html.theme-ok .muted, html.theme-warn .muted { color: rgba(11,18,32,.65); }
+
+    .wrap{
+      width: min(980px, 100%);
+      display:grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 18px;
+    }
+    @media (max-width: 860px){
+      .wrap{ grid-template-columns: 1fr; }
+    }
+
+    .card{
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+      overflow:hidden;
+    }
+    html.theme-ok .card, html.theme-warn .card{
+      background: rgba(255,255,255,.70);
+      border-color: rgba(11,18,32,.10);
+      box-shadow: 0 18px 50px rgba(11,18,32,.10);
+    }
+
+    .header{
+      padding: 18px 18px 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 12px;
+    }
+    html.theme-ok .header, html.theme-warn .header{ border-bottom-color: rgba(11,18,32,.10); }
+
+    .title{
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin:0;
+    }
+    .muted{ color: var(--muted); font-size: 13px; line-height: 1.45; margin-top: 6px; }
+
+    .controls{
+      display:flex;
+      gap: 10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    .btn{
+      appearance:none;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.10);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-weight: 600;
+      cursor:pointer;
+      transition: transform .06s ease, background .2s ease, border-color .2s ease, opacity .2s ease;
+      display:inline-flex;
+      gap: 8px;
+      align-items:center;
+    }
+    .btn:hover{ background: rgba(255,255,255,.14); }
+    .btn:active{ transform: translateY(1px); }
+    .btn[disabled]{ opacity:.55; cursor:not-allowed; }
+
+    html.theme-ok .btn, html.theme-warn .btn{
+      background: rgba(11,18,32,.06);
+      color: #0b1220;
+      border-color: rgba(11,18,32,.12);
+    }
+
+    .btn.primary{
+      border-color: rgba(124,58,237,.55);
+      background: linear-gradient(135deg, rgba(124,58,237,.85), rgba(99,102,241,.70));
+    }
+    .btn.primary:hover{ filter: brightness(1.04); }
+    html.theme-ok .btn.primary, html.theme-warn .btn.primary{
+      color: white;
+      border-color: rgba(124,58,237,.0);
+    }
+
+    .content{
+      padding: 18px;
+      display:grid;
+      gap: 14px;
+    }
+
+    /* Webcam frame */
+    .frame{
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,.25);
+      overflow:hidden;
+      position: relative;
+      aspect-ratio: 1 / 1;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    html.theme-ok .frame, html.theme-warn .frame{
+      background: rgba(11,18,32,.04);
+      border-color: rgba(11,18,32,.10);
+    }
+
+    .frame canvas{
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display:block;
+    }
+
+    /* Status pill */
+    .status{
+      position:absolute;
+      left: 12px;
+      top: 12px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .01em;
+      border: 1px solid rgba(255,255,255,.16);
+      background: rgba(0,0,0,.35);
+      color: rgba(255,255,255,.92);
+      backdrop-filter: blur(8px);
+    }
+    html.theme-ok .status, html.theme-warn .status{
+      border-color: rgba(11,18,32,.10);
+      background: rgba(255,255,255,.75);
+      color: #0b1220;
+    }
+    .status.ok{ outline: 2px solid rgba(34,197,94,.35); }
+    .status.warn{ outline: 2px solid rgba(239,68,68,.35); }
+
+    /* Right side: probability bars */
+    .panel{
+      padding: 18px;
+      display:grid;
+      gap: 12px;
+    }
+    .panel h3{
+      margin:0;
+      font-size: 14px;
+      letter-spacing: -0.01em;
+    }
+
+    .bar{
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.06);
+      border-radius: 14px;
+      overflow:hidden;
+    }
+    html.theme-ok .bar, html.theme-warn .bar{
+      background: rgba(11,18,32,.06);
+      border-color: rgba(11,18,32,.10);
+    }
+    .bar > .fill{
+      height: 38px;
+      width: 0%;
+      background: linear-gradient(90deg, rgba(124,58,237,.85), rgba(99,102,241,.75));
+      transition: width .18s ease;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding: 0 12px;
+      gap: 10px;
+      color: white;
+      font-weight: 700;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .bar > .fill.okFill{
+      background: linear-gradient(90deg, rgba(34,197,94,.85), rgba(16,185,129,.70));
+    }
+    .bar > .fill.warnFill{
+      background: linear-gradient(90deg, rgba(239,68,68,.85), rgba(244,63,94,.70));
+    }
+
+    .hint{
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .footerNote{
+      font-size: 11px;
+      color: var(--muted);
+      padding: 0 18px 18px 18px;
+    }
+
+    /* Minimal spinner */
+    .spinner{
+      width: 18px; height: 18px;
+      border-radius: 999px;
+      border: 2px solid rgba(255,255,255,.35);
+      border-top-color: rgba(255,255,255,.9);
+      animation: spin .8s linear infinite;
+    }
+    html.theme-ok .spinner, html.theme-warn .spinner{
+      border-color: rgba(11,18,32,.25);
+      border-top-color: rgba(11,18,32,.75);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <!-- Left: Webcam -->
+    <section class="card">
+      <div class="header">
+        <div>
+          <h1 class="title">Teachable Machine · 자세 체크</h1>
+          <div class="muted">카메라를 켜면 실시간으로 분류 결과가 표시되고, 50% 기준으로 화면 테마가 바뀝니다.</div>
+        </div>
+        <div class="controls">
+          <button id="startBtn" class="btn primary" type="button" onclick="init()">
+            <span id="startIcon">▶</span>
+            <span id="startText">Start</span>
+          </button>
+          <button id="stopBtn" class="btn" type="button" onclick="stopCam()" disabled>
+            ■ Stop
+          </button>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="frame">
+          <div id="statusPill" class="status">대기 중</div>
+          <div id="webcam-container"></div>
+        </div>
+        <div class="hint">
+          * 팁: 조명이 너무 어두우면 정확도가 떨어질 수 있어요. 화면 정면, 상체가 잘 보이도록 맞춰주세요.
+        </div>
+      </div>
+      <div class="footerNote">© Posture UI · Simple & Modern</div>
+    </section>
+
+    <!-- Right: Predictions -->
+    <aside class="card">
+      <div class="panel">
+        <h3>예측 확률</h3>
+
+        <!-- Bars will be generated dynamically -->
+        <div id="label-container"></div>
+
+        <div class="hint">
+          • “바른자세” 확률이 50% 이상이면 안정적인 밝은 테마<br/>
+          • “나쁜자세” 확률이 50% 이상이면 경고 테마
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+  <script>
+    // ✅ Your model
     const URL = "https://teachablemachine.withgoogle.com/models/WIFY29SSD/";
 
-    let model, webcam, labelContainer, maxPredictions;
+    let model, webcam, maxPredictions;
+    let barRows = [];  // store DOM refs for each class row
+    let loopRunning = false;
 
-    // Load the image model and setup the webcam
+    // theme helpers
+    function setTheme(mode){ // 'default' | 'ok' | 'warn'
+      const root = document.documentElement;
+      root.classList.remove("theme-default","theme-ok","theme-warn");
+      root.classList.add(`theme-${mode}`);
+    }
+    setTheme("default");
+
+    function setStatus(text, type){ // type: 'default'|'ok'|'warn'
+      const pill = document.getElementById("statusPill");
+      pill.textContent = text;
+      pill.classList.remove("ok","warn");
+      if(type === "ok") pill.classList.add("ok");
+      if(type === "warn") pill.classList.add("warn");
+    }
+
+    function setStartLoading(isLoading){
+      const startBtn = document.getElementById("startBtn");
+      const stopBtn  = document.getElementById("stopBtn");
+      const startIcon = document.getElementById("startIcon");
+      const startText = document.getElementById("startText");
+
+      if(isLoading){
+        startBtn.disabled = true;
+        stopBtn.disabled = true;
+        startIcon.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+        startText.textContent = "Loading…";
+      }else{
+        startBtn.disabled = loopRunning; // if running, keep disabled
+        stopBtn.disabled  = !loopRunning;
+        startIcon.textContent = "▶";
+        startText.textContent = loopRunning ? "Running" : "Start";
+      }
+    }
+
     async function init() {
+      try{
+        setStartLoading(true);
+        setStatus("모델 로딩 중…", "default");
+
         const modelURL = URL + "model.json";
         const metadataURL = URL + "metadata.json";
 
-        // load the model and metadata
-        // Refer to tmImage.loadFromFiles() in the API to support files from a file picker
-        // or files from your local hard drive
-        // Note: the pose library adds "tmImage" object to your window (window.tmImage)
         model = await tmImage.load(modelURL, metadataURL);
         maxPredictions = model.getTotalClasses();
 
-        // Convenience function to setup a webcam
-        const flip = true; // whether to flip the webcam
-        webcam = new tmImage.Webcam(200, 200, flip); // width, height, flip
-        await webcam.setup(); // request access to the webcam
+        // webcam
+        const flip = true;
+        webcam = new tmImage.Webcam(420, 420, flip);
+        await webcam.setup();
         await webcam.play();
-        window.requestAnimationFrame(loop);
 
-        // append elements to the DOM
-        document.getElementById("webcam-container").appendChild(webcam.canvas);
-        labelContainer = document.getElementById("label-container");
-        for (let i = 0; i < maxPredictions; i++) { // and class labels
-            labelContainer.appendChild(document.createElement("div"));
-        }
+        // mount canvas
+        const wc = document.getElementById("webcam-container");
+        wc.innerHTML = "";
+        wc.appendChild(webcam.canvas);
+
+        // build prediction bars UI
+        buildBars();
+
+        loopRunning = true;
+        setStartLoading(false);
+        setStatus("측정 중…", "default");
+        window.requestAnimationFrame(loop);
+      }catch(err){
+        console.error(err);
+        loopRunning = false;
+        setStartLoading(false);
+        setTheme("default");
+        setStatus("카메라 권한/모델 로딩 오류", "warn");
+        alert("카메라 권한을 허용했는지 확인해 주세요.");
+      }
+    }
+
+    function buildBars(){
+      const labelContainer = document.getElementById("label-container");
+      labelContainer.innerHTML = "";
+      barRows = [];
+
+      for(let i=0; i<maxPredictions; i++){
+        const row = document.createElement("div");
+
+        const bar = document.createElement("div");
+        bar.className = "bar";
+
+        const fill = document.createElement("div");
+        fill.className = "fill";
+        fill.style.width = "0%";
+        fill.innerHTML = `<span class="name">Class</span><span class="pct">0%</span>`;
+
+        bar.appendChild(fill);
+        row.appendChild(bar);
+        labelContainer.appendChild(row);
+
+        barRows.push({ fill, nameEl: fill.querySelector(".name"), pctEl: fill.querySelector(".pct") });
+      }
     }
 
     async function loop() {
-        webcam.update(); // update the webcam frame
-        await predict();
-        window.requestAnimationFrame(loop);
+      if(!loopRunning) return;
+      webcam.update();
+      await predict();
+      window.requestAnimationFrame(loop);
     }
 
-    // run the webcam image through the image model
-    async function predict() {
-        // predict can take in an image, video or canvas html element
-        const prediction = await model.predict(webcam.canvas);
-        for (let i = 0; i < maxPredictions; i++) {
-            const classPrediction =
-                prediction[i].className + ": " + prediction[i].probability.toFixed(2);
-            labelContainer.childNodes[i].innerHTML = classPrediction;
+    function stopCam(){
+      try{
+        loopRunning = false;
+        if(webcam){
+          webcam.stop();
         }
+        setTheme("default");
+        setStatus("정지됨", "default");
+        document.getElementById("startBtn").disabled = false;
+        document.getElementById("stopBtn").disabled = true;
+        document.getElementById("startText").textContent = "Start";
+      }catch(e){
+        console.error(e);
+      }
     }
-</script>
+
+    // ✅ className 매칭(‘바른자세’, ‘나쁜자세’)을 정확히 찾기
+    function findProb(prediction, keywords){
+      // keywords: string or array
+      const keys = Array.isArray(keywords) ? keywords : [keywords];
+      const found = prediction.find(p => keys.some(k => (p.className || "").includes(k)));
+      return found ? found.probability : null;
+    }
+
+    async function predict() {
+      const prediction = await model.predict(webcam.canvas);
+
+      // update bars
+      for (let i = 0; i < prediction.length; i++) {
+        const p = prediction[i];
+        const pct = Math.round(p.probability * 100);
+        const row = barRows[i];
+
+        row.nameEl.textContent = p.className;
+        row.pctEl.textContent = `${pct}%`;
+        row.fill.style.width = `${pct}%`;
+
+        // give semantic color to likely classes (optional)
+        row.fill.classList.remove("okFill","warnFill");
+        if((p.className || "").includes("바른")) row.fill.classList.add("okFill");
+        if((p.className || "").includes("나쁜")) row.fill.classList.add("warnFill");
+      }
+
+      // theme switching rule (50% 기준)
+      // ⚠️ Teachable Machine에서 클래스명이 정확히 "바른자세", "나쁜자세"가 아니라면
+      // 포함 문자열로 찾도록 구성해둠(바른 / 나쁜)
+      const good = findProb(prediction, ["바른자세","바른"]);
+      const bad  = findProb(prediction, ["나쁜자세","나쁜","불량","경고"]);
+
+      // 우선순위: bad 50% 이상이면 warn, else good 50% 이상이면 ok, else default
+      if (bad !== null && bad > 0.5) {
+        setTheme("warn");
+        setStatus(`나쁜자세 감지 · ${(bad*100).toFixed(0)}%`, "warn");
+      } else if (good !== null && good > 0.5) {
+        setTheme("ok");
+        setStatus(`바른자세 · ${(good*100).toFixed(0)}%`, "ok");
+      } else {
+        setTheme("default");
+        setStatus("측정 중…", "default");
+      }
+    }
+  </script>
+</body>
+</html>
